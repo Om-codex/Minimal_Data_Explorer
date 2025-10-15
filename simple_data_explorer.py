@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import altair as alt
 
 st.set_page_config(layout="wide", page_title="Minimal Data Explorer", initial_sidebar_state="expanded")
@@ -287,10 +288,12 @@ elif st.session_state.stage == 'show_results':
         st.subheader("Heatmap (Correlation/Intensity)")
         if len(numerical_columns) < 1 or len(categorical_columns) < 2:
             st.warning("Requires 2 Categorical Columns (X/Y) and 1 Numerical Column (Color).")
+        elif col1 == col2 :
+            st.warning("X-axis and Y-axis should be different. ")
         else:
             col_1, col_2, col_3 = st.columns(3)
-            with col_1: x_heatmap = st.selectbox('X-Axis (Categorical):', categorical_columns, key='x_heatmap')
-            with col_2: y_heatmap = st.selectbox('Y-Axis (Categorical):', categorical_columns, key='y_heatmap')
+            with col_1: x_heatmap = st.selectbox('X-axis (Categorical):', categorical_columns, key='x_heatmap')
+            with col_2: y_heatmap = st.selectbox('Y-axis (Categorical):', categorical_columns, key='y_heatmap')
             with col_3: color_heatmap = st.selectbox('Color (Numerical/Intensity):', numerical_columns, key='color_heatmap')
 
             heatmap_data = df.groupby([x_heatmap, y_heatmap])[color_heatmap].mean().reset_index(name='Mean Value')
