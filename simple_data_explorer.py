@@ -2,10 +2,8 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 
-# 1. Page Configuration and Theme Setup
 st.set_page_config(layout="wide", page_title="Minimal Data Explorer", initial_sidebar_state="expanded")
 
-# Inject Custom CSS for a Clean, Minimal Dark Theme
 st.markdown(
     """
     <style>
@@ -58,154 +56,255 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("Minimal Data Explorer")
+if 'stage' not in st.session_state:
+    st.session_state.stage = 'file_uploading'
 
-uploaded_file = st.file_uploader("Upload a CSV file here", type=["csv"])
+if st.session_state.stage == 'file_uploading':
+    st.title("Minimal Data Explorer 📊")
+    st.header('Upload A CSV File To Start Exploring! 😊')
+    uploaded_file = st.file_uploader("Choose a CSV file:", type=["csv"])
 
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-    
-    st.sidebar.header("Display Options")
-
-    selected_columns = st.sidebar.multiselect(
-        'Select columns to display:',
-        options=df.columns.tolist(),
-        default=df.columns.tolist()[:5]
-    )
-
-    num_rows = len(df)
-    start_row = st.sidebar.number_input(
-        'Start row (0-indexed):',
-        min_value=0,
-        max_value=num_rows - 1,
-        value=0
-    )
-    end_row = st.sidebar.number_input(
-        'End row (0-indexed, exclusive):',
-        min_value=0,
-        max_value=num_rows,
-        value=min(20, num_rows)
-    )
-
-    if not selected_columns:
-        st.warning("Please select at least one column to display.")
-    elif start_row >= end_row:
-        st.warning("End row must be greater than the start row.")
-    else:
+    if uploaded_file is not None:
+        @st.cache_data
+        def load_data(file):
+            return pd.read_csv(file)
         
-        df = df[selected_columns].iloc[start_row:end_row]
-        st.write('### Selected Data Preview ###')
-        st.dataframe(df)
+        st.session_state.df = load_data(uploaded_file)
+        st.session_state.stage = 'show_data_options'
+        st.rerun()
 
-        numerical_columns = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
-        categorical_columns = df.select_dtypes(include=['object']).columns.tolist()
+    st.info("Please upload a CSV file to start exploring the data.")
 
+elif st.session_state.stage == "show_data_options":
+    st.header("🔴 Explore The Data & Choose One Analysis Option")
+
+    st.write("### Data Preview:")
+    st.dataframe(st.session_state.df)
+    st.write(f"Total Rows: {st.session_state.df.shape[0]}")
+    st.write(f"Total Cols: {st.session_state.df.shape[1]}")
+    st.write(f"Null Count:", st.session_state.df.isnull().sum())
+    st.write("---")
+    st.write("### Data Description:")
+    st.dataframe(st.session_state.df.describe())
+
+    st.write("---")
+    st.subheader("Choose An Analysis Option:")
+    selected_option = st.selectbox("Select an option:", ['Univariate Analysis', 'Bivariate Analysis', 'Multivariate Analysis'])
+
+    if st.button('📈 Analyze'):
+        st.session_state.selected_option = selected_option
+        st.session_state.stage = 'show_results'
+        st.rerun()
+
+    if st.button('🔙 Go Back'):
+        st.session_state.stage = 'file_uploading'
+        st.rerun()
+
+elif st.session_state.stage == 'show_results':
+    st.header("🔵 Data Analysis Section")
+
+    df = st.session_state.df
+    
+    # Use st.button with a key to avoid conflicts
+    if st.button('🔙 Go Back to Options', key='go_back_results'):
+        st.session_state.stage = 'show_data_options'
+        st.rerun()
+
+    selected_analysis = st.session_state.selected_option
+    st.write(f"### You selected: **{selected_analysis}**")
+
+    numerical_columns = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    categorical_columns = df.select_dtypes(include=['object']).columns.tolist()
+    
+    st.sidebar.header("🛠️ Data & Chart Options")
+
+    # Univariate Analysis Section
+    if selected_analysis == 'Univariate Analysis':
         if not numerical_columns and not categorical_columns:
-            st.warning("The uploaded file does not contain any valid columns for plotting.")
+            st.warning("The selected data has no valid columns for univariate analysis.")
         else:
-            st.sidebar.header("Chart Options")
+            analysis_column = st.sidebar.selectbox('Select a column:', numerical_columns + categorical_columns)
             
-            charts = ['Line Chart', 'Area Chart', 'Bar Chart', 'Scatter Chart', 'Map Chart']
-            chart_type = st.sidebar.selectbox('Please select a Chart Type:', charts)
+            if analysis_column in numerical_columns:
+                charts = ['Line Chart', 'Area Chart']
+                chart_type = st.sidebar.selectbox('Chart Type:', charts)
+                
+                if chart_type == 'Line Chart':
+                    st.write(f"### Line Chart for {analysis_column}")
+                    chart = alt.Chart(df.reset_index()).mark_line().encode(
+                        x=alt.X('index', title='Observation Index'),
+                        y=alt.Y(analysis_column, title=analysis_column)
+                    )
+                    st.altair_chart(chart, use_container_width=True)
+                
+                elif chart_type == 'Area Chart':
+                    st.write(f"### Area Chart for {analysis_column}")
+                    chart = alt.Chart(df.reset_index()).mark_area(line=True).encode(
+                        x=alt.X('index', title='Observation Index'),
+                        y=alt.Y(analysis_column, title=analysis_column)
+                    )
+                    st.altair_chart(chart, use_container_width=True)
+
+            elif analysis_column in categorical_columns:
+                chart_type = st.sidebar.selectbox('Chart Type:', ['Bar Chart'])
+                
+                if chart_type == 'Bar Chart':
+                    st.write(f"### Bar Chart for {analysis_column}")
+                    frequency_data = df[analysis_column].value_counts().reset_index()
+                    frequency_data.columns = [analysis_column, 'Frequency']
+                    
+                    chart = alt.Chart(frequency_data).mark_bar().encode(
+                        x=alt.X(analysis_column, title=analysis_column),
+                        y=alt.Y('Frequency', title='Frequency')
+                    )
+                    st.altair_chart(chart, use_container_width=True)
             
-            if chart_type == 'Line Chart':
-                if not numerical_columns:
-                    st.warning("No numerical columns for a Line Chart.")
-                else:
-                    x_axis = st.sidebar.selectbox('Select X-axis:', numerical_columns, index=0)
-                    y_axis = st.sidebar.selectbox('Select Y-axis:', numerical_columns, index=min(1, len(numerical_columns) - 1))
-                    st.write(f"### {chart_type}: {y_axis} vs {x_axis} ###")
-                    st.line_chart(df.set_index(x_axis)[[y_axis]])
-                    
-            elif chart_type == 'Area Chart':
-                if not numerical_columns:
-                    st.warning("No numerical columns for an Area Chart.")
-                else:
-                    x_axis = st.sidebar.selectbox('Select X-axis:', numerical_columns, index=0)
-                    y_axis = st.sidebar.selectbox('Select Y-axis:', numerical_columns, index=min(1, len(numerical_columns) - 1))
-                    st.write(f"### {chart_type}: {y_axis} vs {x_axis} ###")
-                    st.area_chart(df.set_index(x_axis)[[y_axis]])
-                    
-            elif chart_type == 'Bar Chart':
-                if not categorical_columns or not numerical_columns:
-                    st.warning("A Bar Chart requires both categorical and numerical columns.")
-                else:
-                    x_axis = st.sidebar.selectbox('Select X-axis:', categorical_columns)
-                    y_axis = st.sidebar.selectbox('Select Y-axis:', numerical_columns)
-                    
-                    # We will use this categorical column to group the bars
-                    grouping_column = st.sidebar.selectbox('Group by (optional):', ['None'] + categorical_columns, index=0)
-                    
-                    st.write(f"### {chart_type}: {y_axis} by {x_axis} ###")
+            else:
+                st.warning("Please select a valid column.")
 
-                    # The core change is here. We are no longer using 'hue'.
-                    if grouping_column == 'None':
-                        chart = alt.Chart(df).mark_bar().encode(
-                            x=alt.X(x_axis),
-                            y=alt.Y(y_axis),
-                            tooltip=[x_axis, y_axis]
-                        ).interactive()
-                    else:
-                        # Create a grouped bar chart using alt.Column()
-                        chart = alt.Chart(df).mark_bar().encode(
-                            # Use the grouping column to separate the bars
-                            column=alt.Column(grouping_column, header=alt.Header(titleOrient="bottom", labelOrient="bottom")),
-                            x=alt.X(x_axis, axis=None),  # Hide the x-axis label for cleaner look
-                            y=y_axis,
-                            # Add color based on the x_axis to differentiate groups within a single bar
-                            color=x_axis,
-                            tooltip=[x_axis, y_axis, grouping_column]
-                        ).interactive()
+    elif selected_analysis == 'Bivariate Analysis':
+        all_columns = numerical_columns + categorical_columns
+        
+        if len(all_columns) < 2:
+            st.warning("Please select a dataset with at least two columns for bivariate analysis.")
+        else:
+            x_axis = st.sidebar.selectbox('Select X-axis:', all_columns, key='bivariate_x')
+            y_axis = st.sidebar.selectbox('Select Y-axis:', all_columns, key='bivariate_y')
 
-                st.altair_chart(chart, use_container_width=True)
-                    
-            elif chart_type == 'Scatter Chart':
-                if not numerical_columns:
-                    st.warning("A Scatter Chart requires numerical columns.")
-                else:
-                    x_axis = st.sidebar.selectbox('Select X-axis:', numerical_columns)
-                    y_axis = st.sidebar.selectbox('Select Y-axis:', numerical_columns)
-                    hue = st.sidebar.selectbox('Select Hue (optional):', ['None'] + categorical_columns, index=0)
+            if x_axis in numerical_columns and y_axis in numerical_columns:
+                charts = ['Scatter Chart', 'Line Chart']
+                chart_type = st.sidebar.selectbox('Chart Type:', charts, key='bivariate_chart_num')
+                hue = st.sidebar.selectbox('Select Hue (optional):', ['None'] + categorical_columns, index=0, key='bivariate_hue_num')
 
-                    st.write(f"### {chart_type}: {y_axis} vs {x_axis} ###")
-                    
-                    if hue == 'None':
-                        chart = alt.Chart(df).mark_circle().encode(
-                            x=x_axis,
-                            y=y_axis,
-                            tooltip=[x_axis, y_axis]
-                        ).interactive()
-                    else:
-                        chart = alt.Chart(df).mark_circle().encode(
-                            x=x_axis,
-                            y=y_axis,
-                            color=hue,
-                            tooltip=[x_axis, y_axis, hue]
-                        ).interactive()
+                if chart_type == 'Line Chart':
+                    chart = alt.Chart(df).mark_line().encode(
+                        x=alt.X(x_axis, title=x_axis),
+                        y=alt.Y(y_axis, title=y_axis),
+                        color=alt.Color(hue) if hue != 'None' else alt.value('#00BFFF'),
+                        tooltip=[x_axis, y_axis, hue] if hue != 'None' else [x_axis, y_axis]
+                    ).properties(
+                        title=f'Line Chart: {x_axis} vs {y_axis}'
+                    ).interactive()
                     st.altair_chart(chart, use_container_width=True)
                     
-            elif chart_type == 'Map Chart':
-                st.write("### Map Chart ###")
-                
-                lat_cols = ['lat', 'latitude']
-                lon_cols = ['lon', 'longitude']
-                
-                has_lat = any(col.lower() in df.columns for col in lat_cols)
-                has_lon = any(col.lower() in df.columns for col in lon_cols)
-                
-                if has_lat and has_lon:
-                    map_data = df.copy()
-                    map_data.rename(columns={col: 'lat' for col in map_data.columns if col.lower() in lat_cols}, inplace=True)
-                    map_data.rename(columns={col: 'lon' for col in map_data.columns if col.lower() in lon_cols}, inplace=True)
-                    
-                    map_data.dropna(subset=['lat', 'lon'], inplace=True)
-                    
-                    if not map_data.empty:
-                        st.map(map_data)
+                elif chart_type == 'Scatter Chart':
+                    if hue == 'None':
+                        chart = alt.Chart(df).mark_circle().encode(
+                            x=alt.X(x_axis, title=x_axis),
+                            y=alt.Y(y_axis, title=y_axis)
+                        ).properties(
+                            title=f'Scatter Chart: {x_axis} vs {y_axis}'
+                        ).interactive()
                     else:
-                        st.error("No valid geographical data found after cleaning.")
-                else:
-                    st.error("The uploaded file does not contain columns for latitude ('lat', 'latitude') and longitude ('lon', 'longitude').")
-                    st.info("A Map Chart requires data with geographical coordinates.")
+                        chart = alt.Chart(df).mark_circle().encode(
+                            x=alt.X(x_axis, title=x_axis),
+                            y=alt.Y(y_axis, title=y_axis),
+                            color=hue,
+                            tooltip=[x_axis, y_axis, hue]
+                        ).properties(
+                            title=f'Scatter Chart: {x_axis} vs {y_axis}'
+                        ).interactive()
+                    st.altair_chart(chart, use_container_width=True)
+            
+            elif x_axis in categorical_columns and y_axis in numerical_columns:
+                charts = ['Bar Chart', 'Box Plot']
+                chart_type = st.sidebar.selectbox('Chart Type:', charts, key='bivariate_chart_cat')
+                hue = st.sidebar.selectbox('Select Hue (optional):', ['None'] + categorical_columns, index=0, key='bivariate_hue_cat')
+
+                if chart_type == 'Bar Chart':
+                    if hue == 'None':
+                        chart = alt.Chart(df).mark_bar().encode(
+                            x=alt.X(x_axis, title=x_axis),
+                            y=alt.Y(y_axis, title=y_axis),
+                        ).properties(
+                            title=f'Bar Chart: {y_axis} by {x_axis}'
+                        ).interactive()
+                    else:
+                        chart = alt.Chart(df).mark_bar().encode(
+                            column=alt.Column(x_axis, header=alt.Header(titleOrient="bottom", labelOrient="bottom")),
+                            x=alt.X(hue, axis=None),  
+                            y=alt.Y(y_axis, title=y_axis),
+                            color=hue,
+                            tooltip=[x_axis, y_axis, hue]
+                        ).properties(
+                            title=f'Grouped Bar Chart: {y_axis} by {x_axis} & {hue}'
+                        ).interactive()
+                    st.altair_chart(chart, use_container_width=True)
+
+                elif chart_type == 'Box Plot':
+                    if hue == 'None':
+                        chart = alt.Chart(df).mark_boxplot().encode(
+                            x=alt.X(x_axis, title=x_axis),
+                            y=alt.Y(y_axis, title=y_axis)
+                        ).properties(
+                            title=f'Box Plot: {y_axis} by {x_axis}'
+                        ).interactive()
+                    else:
+                        chart = alt.Chart(df).mark_boxplot().encode(
+                            x=alt.X(x_axis, title=x_axis),
+                            y=alt.Y(y_axis, title=y_axis),
+                            color=hue
+                        ).properties(
+                            title=f'Box Plot: {y_axis} by {x_axis} & {hue}'
+                        ).interactive()
+                    st.altair_chart(chart, use_container_width=True)
+
+            elif x_axis in numerical_columns and y_axis in categorical_columns:
+                st.warning("Please select a numerical column for the Y-axis and a categorical column for the X-axis for a bar or box plot.")
+            elif x_axis in categorical_columns and y_axis in categorical_columns:
+                st.info("Try a Heatmap (Multivariate Analysis) to compare two categorical columns.")
+
+    elif selected_analysis == 'Multivariate Analysis':
+        st.header("Analyzing 3 or More Variables")
+        
+        st.subheader("Bubble Chart (3 Variables)")
+        if len(numerical_columns) < 2 or not categorical_columns:
+            st.warning("Requires at least 2 Numerical Columns (X/Y) and 1 Categorical Column (Color).")
+        else:
+            col1, col2, col3 = st.columns(3)
+            with col1: x_bubble = st.selectbox('X-Axis (Numerical):', numerical_columns, key='x_bubble')
+            with col2: y_bubble = st.selectbox('Y-Axis (Numerical):', numerical_columns, key='y_bubble')
+            with col3: hue_bubble = st.selectbox('Color (Categorical):', categorical_columns, key='hue_bubble')
+            size_bubble = st.sidebar.selectbox('Size (Numerical/3rd Variable):', ['None'] + numerical_columns, key='size_bubble')
+            
+            tooltip_list = [x_bubble, y_bubble, hue_bubble]
+            if size_bubble != 'None':
+                tooltip_list.append(size_bubble)
+
+            bubble_chart = alt.Chart(df).mark_circle().encode(
+                x=alt.X(x_bubble, title=x_bubble),
+                y=alt.Y(y_bubble, title=y_bubble),
+                color=hue_bubble,
+                size=size_bubble if size_bubble != 'None' else alt.value(100),
+                tooltip=tooltip_list
+            ).properties(
+                title=f'Bubble Chart: {x_bubble} vs {y_bubble} (Colored by {hue_bubble})'
+            ).interactive()
+            st.altair_chart(bubble_chart, use_container_width=True)
+            
+            st.markdown("---")
+
+        st.subheader("Heatmap (Correlation/Intensity)")
+        if len(numerical_columns) < 1 or len(categorical_columns) < 2:
+            st.warning("Requires 2 Categorical Columns (X/Y) and 1 Numerical Column (Color).")
+        else:
+            col_1, col_2, col_3 = st.columns(3)
+            with col_1: x_heatmap = st.selectbox('X-Axis (Categorical):', categorical_columns, key='x_heatmap')
+            with col_2: y_heatmap = st.selectbox('Y-Axis (Categorical):', categorical_columns, key='y_heatmap')
+            with col_3: color_heatmap = st.selectbox('Color (Numerical/Intensity):', numerical_columns, key='color_heatmap')
+
+            heatmap_data = df.groupby([x_heatmap, y_heatmap])[color_heatmap].mean().reset_index(name='Mean Value')
+
+            heatmap = alt.Chart(heatmap_data).mark_rect().encode(
+                x=alt.X(x_heatmap, title=x_heatmap),
+                y=alt.Y(y_heatmap, title=y_heatmap),
+                color=alt.Color('Mean Value', scale=alt.Scale(scheme='viridis'), title=f'Avg {color_heatmap}'),
+                tooltip=[x_heatmap, y_heatmap, alt.Tooltip('Mean Value', format='.2f')]
+            ).properties(
+                title=f'Heatmap: Average {color_heatmap} by {x_heatmap} and {y_heatmap}'
+            ).interactive()
+            
+            st.altair_chart(heatmap, use_container_width=True)
+
 else:
     st.info('Please upload a CSV file to begin.')
