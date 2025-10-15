@@ -66,6 +66,8 @@ Upload → Preview → Analyze
 
 ## 🚀 Getting Started
 
+### Link For the Web App: https://minimal-data-explorer.streamlit.app
+
 ### ✅ Prerequisites
 Make sure you have **Python 3.8+** installed.
 
@@ -92,8 +94,6 @@ pip install -r requirements.txt
 ▶️ Running the App
 Run the application with:
 
-bash
-Copy code
 streamlit run data_explorer_app.py
 Once started, the app will automatically open in your default web browser:
 👉 http://localhost:8501
@@ -107,3 +107,5 @@ Downloadable EDA report summary
 
 🧑‍💻 Author
 Om-codex — Built with ❤️ using Python, Streamlit, and Altair.
+
+
