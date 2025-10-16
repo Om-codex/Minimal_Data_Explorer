@@ -1,3 +1,7 @@
+streamlit 
 pandas
-streamlit
-altair
+numpy 
+altair 
+csv
+seaborn
+matplotlib
