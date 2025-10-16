@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import altair as alt
+import csv
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide", page_title="Minimal Data Explorer", initial_sidebar_state="expanded")
 
@@ -60,44 +63,154 @@ st.markdown(
 if 'stage' not in st.session_state:
     st.session_state.stage = 'file_uploading'
 
+def clean_data(df):
+    try:
+        df = df.dropna(axis=1, how='all')
+        df = df.replace([np.inf, -np.inf], np.nan)
+        for col in df.columns:
+            if df[col].dtype in ['int64', 'float64']:
+                df[col] = df[col].fillna(df[col].mean())
+            else:
+                df[col] = df[col].fillna("Unknown")
+        df = df.drop_duplicates()
+        df.columns = df.columns.str.strip()
+        return df
+    except Exception as e:
+        st.error(f"❌ Error cleaning data: {e}")
+        return df
+
+@st.cache_data
+def load_data(file):
+    def detect_delimiter(f):
+        try:
+            sample = f.read(2048).decode('utf-8', errors='ignore')
+            f.seek(0)
+            sniffer = csv.Sniffer()
+            delimiter = sniffer.sniff(sample).delimiter
+            return delimiter
+        except Exception:
+            f.seek(0)
+            return ','
+
+    try:
+        df = pd.read_csv(file, comment='#')
+        st.success("✅ File loaded successfully.")
+        return df
+    except pd.errors.ParserError:
+        st.warning("⚠️ Parsing issue detected. Trying to auto-detect the delimiter...")
+        try:
+            delimiter = detect_delimiter(file)
+            df = pd.read_csv(file, sep=delimiter, comment='#')
+            st.info(f"Detected delimiter: '{delimiter}'")
+            return df
+        except Exception as e:
+            st.error(f"❌ Parsing failed: {e}")
+            return pd.DataFrame()
+    except UnicodeDecodeError:
+        st.warning("⚠️ Encoding issue detected. Trying fallback encoding ('latin1')...")
+        try:
+            df = pd.read_csv(file, encoding='latin1', comment='#')
+            return df
+        except Exception as e:
+            st.error(f"❌ Encoding problem: {e}")
+            return pd.DataFrame()
+    except Exception as e:
+        st.error(f"❌ Unexpected error while loading file: {e}")
+        return pd.DataFrame()
+
 if st.session_state.stage == 'file_uploading':
     st.title("Minimal Data Explorer 📊")
     st.header('Upload A CSV File To Start Exploring! 😊')
+
     uploaded_file = st.file_uploader("Choose a CSV file:", type=["csv"])
 
     if uploaded_file is not None:
-        @st.cache_data
-        def load_data(file):
-            return pd.read_csv(file)
-        
-        st.session_state.df = load_data(uploaded_file)
-        st.session_state.stage = 'show_data_options'
-        st.rerun()
+        df = load_data(uploaded_file)
+        if not df.empty:
+            st.session_state.df = clean_data(df)
 
-    st.info("Please upload a CSV file to start exploring the data.")
+            st.sidebar.subheader("📁 File Information")
+            st.sidebar.write(f"**File Name:** {uploaded_file.name}")
+            st.sidebar.write(f"**File Size:** {round(uploaded_file.size / 1024, 2)} KB")
+            st.sidebar.write(f"**Rows:** {df.shape[0]}")
+            st.sidebar.write(f"**Columns:** {df.shape[1]}")
+
+            if st.button('📈 Start Exploring'):
+                st.session_state.stage = 'show_data_options'
+                st.rerun()
+    else:
+        st.info("Please upload a CSV file to start exploring the data.")
 
 elif st.session_state.stage == "show_data_options":
     st.header("🔴 Explore The Data & Choose One Analysis Option")
 
     st.write("### Data Preview:")
-    st.dataframe(st.session_state.df)
-    st.write(f"Total Rows: {st.session_state.df.shape[0]}")
-    st.write(f"Total Cols: {st.session_state.df.shape[1]}")
-    st.write(f"Null Count:", st.session_state.df.isnull().sum())
+    df = st.session_state.df
+    max_rows = 500 if len(df) > 500 else len(df)
+    st.dataframe(df.head(max_rows))
+    st.caption(f"Showing first {max_rows} rows (total {len(df)} rows).")
+    st.write(f"Total Rows: {df.shape[0]}")
+    st.write(f"Total Cols: {df.shape[1]}")
+    st.write(f"Null Count:",df.isnull().sum())
     st.write("---")
     st.write("### Data Description:")
-    st.dataframe(st.session_state.df.describe())
-
+    try:
+        st.dataframe(st.session_state.df.describe(include='all'))
+    except Exception as e:
+        st.warning(f"⚠️ Could not generate description: {e}")
     st.write("---")
-    st.subheader("Choose An Analysis Option:")
-    selected_option = st.selectbox("Select an option:", ['Univariate Analysis', 'Bivariate Analysis', 'Multivariate Analysis'])
+    st.write("### Data Correlation")
+    corr = df.corr(numeric_only = True)
+    st.dataframe(corr)
+    st.sidebar.title('📐Plot Settings')
 
-    if st.button('📈 Analyze'):
+    palette = st.sidebar.selectbox(
+            "Select Heatmap Color Palette",
+            options=['coolwarm', 'viridis', 'crest', 'magma', 'cividis', 'Blues', 'RdBu_r']
+        )
+
+    if st.button("Visualize Correlation"):
+        
+        fig, ax = plt.subplots(figsize=(10, 8))
+        sns.heatmap(corr,cmap=palette, linewidths=0.5, ax=ax)
+        ax.set_title(f"Correlation Matrix (Palette: {palette})")
+        st.pyplot(fig)
+
+    numerical_columns = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+
+    if numerical_columns:
+        st.subheader("Numerical Column Statistics")
+        stats_df = df[numerical_columns].agg(['mean', 'median', 'std', 'min', 'max', 'skew', 'kurtosis']).T
+        st.dataframe(stats_df)
+
+    st.sidebar.title('> Next Step:')
+    st.sidebar.header("Filter Data (Simplified)")
+
+    # Select columns to display
+    all_columns = df.columns.tolist()
+    selected_columns = st.sidebar.multiselect("Select columns to display:", all_columns, default=all_columns)
+
+    # Select number of rows to display
+    num_rows = st.sidebar.slider("Number of rows to display:", min_value=10, max_value=min(1000, len(df)), value=min(100, len(df)))
+
+    # Apply filtering
+    filtered_df = df[selected_columns].head(num_rows)
+    st.subheader(f"Filtered Data: {filtered_df.shape[0]} rows x {filtered_df.shape[1]} columns")
+    st.dataframe(filtered_df)
+
+    # Save filtered data to session_state
+    st.session_state.filtered_df = filtered_df
+
+    st.sidebar.title('> Next Step:')
+    st.sidebar.header("Choose An Analysis Option:")
+    selected_option = st.sidebar.selectbox("Select an option:", ['Univariate Analysis', 'Bivariate Analysis', 'Multivariate Analysis'])
+
+    if st.sidebar.button('📈 Analyze'):
         st.session_state.selected_option = selected_option
         st.session_state.stage = 'show_results'
         st.rerun()
 
-    if st.button('🔙 Go Back'):
+    if st.sidebar.button('🔙 Go Back'):
         st.session_state.stage = 'file_uploading'
         st.rerun()
 
@@ -107,7 +220,7 @@ elif st.session_state.stage == 'show_results':
     df = st.session_state.df
     
     # Use st.button with a key to avoid conflicts
-    if st.button('🔙 Go Back to Options', key='go_back_results'):
+    if st.sidebar.button('🔙 Go Back to Options', key='go_back_results'):
         st.session_state.stage = 'show_data_options'
         st.rerun()
 
@@ -127,7 +240,8 @@ elif st.session_state.stage == 'show_results':
             analysis_column = st.sidebar.selectbox('Select a column:', numerical_columns + categorical_columns)
             
             if analysis_column in numerical_columns:
-                charts = ['Line Chart', 'Area Chart']
+                fig, ax = plt.subplots()
+                charts = ['Line Chart', 'Area Chart',"Histogram", "KDE", "Histogram + KDE"]
                 chart_type = st.sidebar.selectbox('Chart Type:', charts)
                 
                 if chart_type == 'Line Chart':
@@ -145,6 +259,21 @@ elif st.session_state.stage == 'show_results':
                         y=alt.Y(analysis_column, title=analysis_column)
                     )
                     st.altair_chart(chart, use_container_width=True)
+
+                elif chart_type == 'Histogram':
+                    sns.histplot(df[analysis_column], kde=False, ax=ax, color='teal')
+                    ax.set_title(f"Distribution of {analysis_column}")
+                    st.pyplot(fig)
+                elif chart_type == "KDE":
+                    sns.kdeplot(df[analysis_column], ax=ax, fill=True, color='teal')
+                    ax.set_title(f"Distribution of {analysis_column}")
+                    st.pyplot(fig)
+                elif chart_type == "Histogram + KDE":
+                    sns.histplot(df[analysis_column], kde=True, ax=ax, color='teal')
+                    ax.set_title(f"Distribution of {analysis_column}")
+                    st.pyplot(fig)
+                
+
 
             elif analysis_column in categorical_columns:
                 chart_type = st.sidebar.selectbox('Chart Type:', ['Bar Chart'])
@@ -258,6 +387,7 @@ elif st.session_state.stage == 'show_results':
     elif selected_analysis == 'Multivariate Analysis':
         st.header("Analyzing 3 or More Variables")
         
+        # 1. Bubble Chart (3+ Variables)
         st.subheader("Bubble Chart (3 Variables)")
         if len(numerical_columns) < 2 or not categorical_columns:
             st.warning("Requires at least 2 Numerical Columns (X/Y) and 1 Categorical Column (Color).")
@@ -285,18 +415,22 @@ elif st.session_state.stage == 'show_results':
             
             st.markdown("---")
 
+        
         st.subheader("Heatmap (Correlation/Intensity)")
         if len(numerical_columns) < 1 or len(categorical_columns) < 2:
             st.warning("Requires 2 Categorical Columns (X/Y) and 1 Numerical Column (Color).")
-        elif col1 == col2 :
-            st.warning("X-axis and Y-axis should be different. ")
         else:
             col_1, col_2, col_3 = st.columns(3)
-            with col_1: x_heatmap = st.selectbox('X-axis (Categorical):', categorical_columns, key='x_heatmap')
-            with col_2: y_heatmap = st.selectbox('Y-axis (Categorical):', categorical_columns, key='y_heatmap')
+            with col_1: x_heatmap = st.selectbox('X-Axis (Categorical):', categorical_columns, key='x_heatmap')
+            with col_2: y_heatmap = st.selectbox('Y-Axis (Categorical):', categorical_columns, key='y_heatmap')
             with col_3: color_heatmap = st.selectbox('Color (Numerical/Intensity):', numerical_columns, key='color_heatmap')
 
-            heatmap_data = df.groupby([x_heatmap, y_heatmap])[color_heatmap].mean().reset_index(name='Mean Value')
+            
+            heatmap_data = df.groupby([x_heatmap, y_heatmap], as_index=False)[color_heatmap].mean()
+            
+            
+            heatmap_data = heatmap_data.rename(columns={color_heatmap: 'Mean Value'})
+            
 
             heatmap = alt.Chart(heatmap_data).mark_rect().encode(
                 x=alt.X(x_heatmap, title=x_heatmap),
@@ -311,3 +445,8 @@ elif st.session_state.stage == 'show_results':
 
 else:
     st.info('Please upload a CSV file to begin.')
+
+
+
+
+
