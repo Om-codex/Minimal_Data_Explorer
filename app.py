@@ -664,18 +664,28 @@ elif st.session_state.stage == 'show_results':
 
           agg_func = st.sidebar.selectbox("Aggregation for Heatmap:", ['mean', 'median', 'sum', 'count'], index=0)
 
-          heatmap_data = df_plot.groupby([x_heatmap, y_heatmap], as_index=False)[color_heatmap].agg(agg_func)
-          heatmap_data.rename(columns={color_heatmap: 'Value'}, inplace=True)
+          if x_heatmap == y_heatmap:
+             st.error("❌ X-axis and Y-axis cannot be the same column for the heatmap.")
+          else:
+            heatmap_data = (
+                df_plot.groupby([x_heatmap, y_heatmap])[color_heatmap]
+                .agg(agg_func)
+                .reset_index()
+            )
+            heatmap_data.rename(columns={color_heatmap: 'Value'}, inplace=True)
 
-          heatmap = alt.Chart(heatmap_data).mark_rect().encode(
-              x=alt.X(x_heatmap, title=x_heatmap),
-              y=alt.Y(y_heatmap, title=y_heatmap),
-              color=alt.Color('Value:Q', scale=alt.Scale(scheme='viridis'), title=f'{agg_func.title()} {color_heatmap}'),
-              tooltip=[x_heatmap, y_heatmap, alt.Tooltip('Value:Q', format='.2f')]
-          ).properties(
-              title=f"Heatmap: {agg_func.title()} {color_heatmap} by {x_heatmap} and {y_heatmap}"
-          ).interactive()
-          st.altair_chart(heatmap, use_container_width=True)
+            heatmap = alt.Chart(heatmap_data).mark_rect().encode(
+                x=alt.X(x_heatmap, title=x_heatmap),
+                y=alt.Y(y_heatmap, title=y_heatmap),
+                color=alt.Color('Value:Q', scale=alt.Scale(scheme='viridis'),
+                                title=f'{agg_func.title()} {color_heatmap}'),
+                tooltip=[x_heatmap, y_heatmap, alt.Tooltip('Value:Q', format='.2f')]
+            ).properties(
+                title=f"Heatmap: {agg_func.title()} {color_heatmap} by {x_heatmap} and {y_heatmap}"
+            ).interactive()
+
+            st.altair_chart(heatmap, use_container_width=True)
+
       else:
           st.warning("Needs ≥2 categorical and ≥1 numerical column for Heatmap.")
 
@@ -752,8 +762,3 @@ elif st.session_state.stage == 'show_results':
 
 else:
     st.info('Please upload a CSV file to begin.')
-
-
-
-
-
