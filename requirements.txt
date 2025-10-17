@@ -1,7 +1,7 @@
-streamlit 
+streamlit
 pandas
-numpy 
-altair 
-csv
+numpy
+altair
 seaborn
 matplotlib
+statsmodels
