@@ -1,3 +1,4 @@
+# === saare imports ===
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -7,8 +8,10 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 
+# === set the width ===
 st.set_page_config(layout="wide", page_title="Minimal Data Explorer", initial_sidebar_state="expanded")
 
+# === css section ai se banaya hai
 st.markdown("""
 <style>
 
@@ -210,10 +213,11 @@ div[data-testid="stTooltip"] {
 </style>
 """, unsafe_allow_html=True)
 
-
+# === Stage 1 hai ye file uploading ka ===
 if 'stage' not in st.session_state:
     st.session_state.stage = 'file_uploading'
 
+# === saaf safai of dataset ===
 def clean_data(df):
     try:
         df = df.dropna(axis=1, how='all')
@@ -230,6 +234,7 @@ def clean_data(df):
         st.error(f"❌ Error cleaning data: {e}")
         return df
 
+# === to handle the bade datasets ===
 @st.cache_data
 def load_data(file):
     def detect_delimiter(f):
@@ -273,12 +278,43 @@ if st.session_state.stage == 'file_uploading':
     st.title("Minimal Data Explorer 📊")
     st.header('Upload A CSV File To Start Exploring! 😊')
 
-    uploaded_file = st.file_uploader("Choose a CSV file:", type=["csv"])
+    import pandas as pd
 
-    if uploaded_file is not None:
+    # --- sample datasets ---
+    sample_datasets = {
+        "Iris": "datasets/iris.csv",
+        "Titanic": "datasets/train.csv",
+        "Heart": "datasets/heart.csv",
+        "Insurance": "datasets/insurance.csv",
+        "Housing": "datasets/housing.csv"
+    }
+
+    # --- file uploader ---
+    uploaded_file = st.file_uploader("Or upload your own CSV file:", type=["csv"])
+
+    # --- sample dataset selector ---
+    st.subheader("Or try a sample dataset:")
+    selected_sample = st.selectbox("Choose a sample dataset:", [""] + list(sample_datasets.keys()))
+
+    df = None  # initialize
+
+    if selected_sample:
+        df = pd.read_csv(sample_datasets[selected_sample])
+        df = clean_data(df)  # if needed
+        st.session_state.df = df
+
+        st.sidebar.subheader("📁 Dataset Information")
+        st.sidebar.write(f"**Dataset Name:** {selected_sample}")
+        st.sidebar.write(f"**Rows:** {df.shape[0]}")
+        st.sidebar.write(f"**Columns:** {df.shape[1]}")
+
+        st.success(f"Loaded sample dataset: {selected_sample}")
+
+    elif uploaded_file is not None:
         df = load_data(uploaded_file)
         if not df.empty:
-            st.session_state.df = clean_data(df)
+            df = clean_data(df)
+            st.session_state.df = df
 
             st.sidebar.subheader("📁 File Information")
             st.sidebar.write(f"**File Name:** {uploaded_file.name}")
@@ -286,15 +322,20 @@ if st.session_state.stage == 'file_uploading':
             st.sidebar.write(f"**Rows:** {df.shape[0]}")
             st.sidebar.write(f"**Columns:** {df.shape[1]}")
 
-            if st.button('📈 Start Exploring'):
-                st.session_state.stage = 'show_data_options'
-                st.rerun()
+    if df is not None:
+        if st.button('📈 Start Exploring'):
+            st.session_state.stage = 'show_data_options'
+            st.rerun()
     else:
-        st.info("Please upload a CSV file to start exploring the data.")
+        st.info("Please upload a CSV file or select a sample dataset to start exploring the data.")
 
+
+# === dusra stage hai; data exploration ka ===
 elif st.session_state.stage == "show_data_options":
     st.header("🔴 Explore The Data & Choose One Analysis Option")
 
+
+    # === data dekhlo apna ===
     st.write("### Data Preview:")
     df = st.session_state.df
     max_rows = 500 if len(df) > 500 else len(df)
@@ -310,18 +351,34 @@ elif st.session_state.stage == "show_data_options":
     except Exception as e:
         st.warning(f"⚠️ Could not generate description: {e}")
     st.write("---")
-    st.write("### Data Correlation")
-    corr = df.corr(numeric_only = True).fillna(0)
-    st.dataframe(corr)
+    
     st.sidebar.title('📐Plot Settings')
 
     palette = st.sidebar.selectbox(
             "Select Heatmap Color Palette",
             options=['coolwarm', 'viridis', 'crest', 'magma', 'cividis', 'Blues', 'RdBu_r']
         )
+    st.sidebar.header("Filter Data (Simplified)")
+    # === apni marzi ka column ===
+    all_columns = df.columns.tolist()
+    selected_columns = st.sidebar.multiselect("Select columns to display:", all_columns, default=all_columns)
+
+    # === apni marzi ka row ===
+    num_rows = st.sidebar.slider("Number of rows to display:", min_value=10, max_value=len(df), value=min(100, len(df)))
+
+    # === data filter karlo ===
+    filtered_df = df[selected_columns].head(num_rows)
+    st.subheader(f"Filtered Data: {filtered_df.shape[0]} rows x {filtered_df.shape[1]} columns")
+    st.dataframe(filtered_df)
+    st.session_state.filtered_df = filtered_df
+
+    st.write("### Data Correlation")
+    corr = filtered_df.corr(numeric_only = True).fillna(0)
+    st.dataframe(corr)
+    
 
     if st.button("Visualize Correlation"):
-        
+        st.warning('According to the number of rows & cols selected!')
         fig, ax = plt.subplots(figsize=(10, 8))
         sns.heatmap(corr,cmap=palette, linewidths=0.5, ax=ax)
         ax.set_title(f"Correlation Matrix (Palette: {palette})")
@@ -335,19 +392,6 @@ elif st.session_state.stage == "show_data_options":
         st.dataframe(stats_df)
 
     st.sidebar.title('> Next Step:')
-    st.sidebar.header("Filter Data (Simplified)")
-
-    # Select columns to display
-    all_columns = df.columns.tolist()
-    selected_columns = st.sidebar.multiselect("Select columns to display:", all_columns, default=all_columns)
-
-    # Select number of rows to display
-    num_rows = st.sidebar.slider("Number of rows to display:", min_value=10, max_value=min(1000, len(df)), value=min(100, len(df)))
-
-    # Apply filtering
-    filtered_df = df[selected_columns].head(num_rows)
-    st.subheader(f"Filtered Data: {filtered_df.shape[0]} rows x {filtered_df.shape[1]} columns")
-    st.dataframe(filtered_df)
 
 
     st.sidebar.header("Choose An Analysis Option:")
